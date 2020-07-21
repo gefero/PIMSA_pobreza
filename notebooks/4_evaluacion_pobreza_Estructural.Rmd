@@ -1,0 +1,33 @@
+---
+title: "Evaluación de indicadores pobreza estructural"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(cluster)
+library(tidymodels)
+library(FactoMineR)
+library(janitor)
+```
+
+```{r}
+wb <- read_csv('../data/indicadores_pais/pobreza_estructural_final.csv')
+```
+
+```{r fig.height=15, fig.width=10}
+wb %>%
+    filter(date >= 2005 & date <= 2015) %>%
+    group_by(indicatorID, indicator) %>%
+    summarise(n_data = n(),
+              year_min = min(date),
+              year_max = max(date)) %>%
+    ungroup() %>%
+    arrange(desc(n_data)) %>%
+    ggplot(aes(x=reorder(indicatorID, n_data), y=n_data)) + 
+        geom_bar(stat='identity') +
+        coord_flip() +
+        theme_minimal()
+```
+

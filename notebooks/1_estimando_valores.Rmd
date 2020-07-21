@@ -1,0 +1,85 @@
+---
+title: "Estimando valores de línea de pobreza"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+### VARIAR LOS UMBRALES DE 20 a 50 U$S
+
+
+```{r eval=FALSE, include=FALSE}
+data <- read_csv('../data/proc/TOTAL_povcalnet_1_50.csv') %>%
+    arrange(countrycode, year, povertyline) %>%
+    filter(povertyline <= 40) %>%
+    group_by(countrycode,year) %>%
+    mutate(diff = (headcount - lag(headcount) )) %>%
+    ungroup()
+
+data_filtered <- data %>%
+      group_by(countrycode, coveragetype, year) %>%
+      filter(diff == max(diff, na.rm=TRUE))
+
+write_csv(data_filtered, '../data/proc/povcalnet_filtrada.csv')
+```
+
+
+```{r}
+data <- read_csv('../data/proc/povcalnet_filtrada.csv')
+
+countries <- data %>% select(countryname) %>% unique()
+```
+
+```{r}
+brics <- c("Brazil", "Russian Federation", "India", "China", "South Africa")
+coverage <- c("N", "A")
+data %>%
+  filter(countryname %in% brics & coveragetype %in% coverage & year < 2015) %>%
+  ggplot(.,
+       aes(x=year, y=headcount, colour=countryname)) +
+       geom_line()
+```
+
+
+
+```{r}
+group2 <- c("Argentina", "Brazil", "Bolivia","Chile","Peru","Germany", "United States", "Netherlands", "Italy", "France")
+
+coverage <- data %>%
+  filter(countryname %in% group2 & year < 2015) %>%
+  select(coveragetype) %>% 
+  unique() %>%
+  pull
+
+data %>%
+  filter(countryname %in% group2 & coveragetype %in% coverage  & year < 2015) %>%
+  ggplot(.,
+       aes(x=year, y=povertyline, colour=countryname)) +
+       geom_line() + 
+      facet_wrap(~countryname) + 
+  theme(legend.position = "none")
+```
+
+
+```{r}
+group_2_dolares <- c("Malawi", "Mali", "Ethiopia", "Sierra Leone", "Niger", "Uganda", "Gambia", "Rwanda", "Guinea-Bissau", "Tanzania", "Tajikistan", "Mozambique", "Chad", "Nepal", "Ghana")
+
+coverage <- data %>%
+  filter(countryname %in% group_2_dolares & year <= 2015) %>%
+  select(coveragetype) %>% 
+  unique() %>%
+  pull
+
+data %>%
+  filter(countryname %in% group_2_dolares & coveragetype %in% coverage  & year <= 2015) %>%
+  ggplot(.,
+       aes(x=year, y=povertyline, colour=countryname)) +
+       geom_line() + 
+      facet_wrap(~countryname) + 
+      theme(legend.position = "none")
+
+
+```

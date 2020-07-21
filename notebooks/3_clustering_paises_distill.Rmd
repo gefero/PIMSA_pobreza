@@ -1,0 +1,474 @@
+---
+title: "Construcción de clustering de países según el grado de desarrollo de relaciones salariales"
+description: |
+  Resumen metodológico
+#author:
+#  - name: Nora Jones 
+#    url: https://example.com/norajones
+#    affiliation: Spacely Sprockets
+#    affiliation_url: https://example.com/spacelysprokets
+date: "`r Sys.Date()`"
+output: distill::distill_article
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(patchwork)
+library(cluster)
+library(tidymodels)
+library(FactoMineR)
+library(janitor)
+
+train_kmean <- function(df, k){
+    set.seed(100)
+    cl <- kmeans(df, centers=k, 
+             iter.max = 300, nstart = 25)$cluster
+    return(cl)
+}
+
+```
+
+## Preprocesamiento
+
+Cargamos el dataset y filtramos los años 2005 a 2015. Se toma el promedio decenal (2005-2015) de las variables.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+wb <- read_csv('../data/indicadores_pais/completo_mas_fao.csv')
+
+df <- wb %>% 
+    #filter(indicatorID %in% indicators) %>%
+    filter(date >= 2005 & date <= 2015) %>%
+    group_by(iso3c, country, indicatorID, indicator) %>%
+    summarise(
+        value = mean(value),
+        n = n(),
+        year_min = min(date),
+        year_max = max(date),
+    ) %>%
+    ungroup()
+```
+
+Eliminanos los siguientes indicadores por no tener la cobertura deseada.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df <- df %>%
+    filter(!(indicatorID %in% c("SL.UEM.TOTL.NE.ZS", "SL.ISV.IFRM.ZS", "UNEMPSA_", "SL.UEM.INTM.ZS")))
+```
+
+
+## Introducción
+El presente documento busca sistematizar los procedimientos utilizados para realizar la primera aproximación a un agrupamiento de países en función del grado de desarrollo de relaciones salariales. Para ello se toman como dimensiones de análisis la distribución de la población según grandes agrupameintos de ramas de actividad y según categoría ocupacional.
+
+## Metodología
+
+### Fuentes e indicadores
+Se utilizaron datos provenientes del banco de datos del [Banco Mundial](https://data.worldbank.org/). Se decidió utilizar esta fuente por dos razones:
+
+1. es la que se está utilizando en el presente proyecto para el análisis de las diversas manifestaciones de la pobreza y su relación con los procesos de constitución de la superpoblación relativa
+2. contiene una gran variedad de indicadores y series de tiempo
+
+Particularmente se trabajó con los siguientes indicadores (los cuales son producidos a su vez por la OIT).
+
+*Grandes agrupamientos de ramas de actividad - como aproximación a la división social del trabajo-*
+
+- SL.AGR.EMPL.ZS	Employment in agriculture (% of total employment) (modeled ILO estimate)
+- SL.IND.EMPL.ZS	Employment in industry (% of total employment) (modeled ILO estimate)
+- SL.SRV.EMPL.ZS	Employment in services (% of total employment) (modeled ILO estimate)
+
+*Categoría ocupacional - como aproximación indirecta a la expansión de relaciones salariales-*
+- SL.EMP.MPYR.ZS	Employers, total (% of total employment) (modeled ILO estimate)
+- SL.EMP.SELF.ZS	Self-employed, total (% of total employment) (modeled ILO estimate)
+- SL.EMP.WORK.ZS	Wage and salaried workers, total (% of total employment) (modeled ILO estimate)
+- SL.FAM.WORK.ZS	Contributing family workers, total (% of total employment) (modeled ILO estimate)
+    
+Particularmente, en esta última dimensión se agregaron en dos indicadores: 
+
+- relaciones salariales: la suma de patrones y asalariados
+- relaciones no salariales: la suma de cuenta propias y trabajadores familiares
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+inds_clustering <- c("iso3c","country","SP.POP.TOTL", "SL.AGR.EMPL.ZS", "SL.IND.EMPL.ZS", "SL.SRV.EMPL.ZS",
+                     "SL.EMP.MPYR.ZS", "SL.EMP.SELF.ZS", "SL.EMP.WORK.ZS", "SL.FAM.WORK.ZS",
+                     "SL.UEM.TOTL.ZS", "SL.EMP.VULN.ZS","SL.TLF.PART.ZS","SL.EMP.TOTL.SP.ZS")
+
+
+#inds_other <- c("SP.POP.0014.TO", "21081","SL.TLF.PART.ZS","SL.EMP.TOTL.SP.ZS")
+
+df_ <- df %>%
+    pivot_wider(id_cols=c(iso3c,country), names_from = indicatorID, values_from = value) %>%
+    select(iso3c,`21081`,SL.UEM.TOTL.ZS, SL.UEM.ADVN.ZS, SL.EMP.VULN.ZS,SP.POP.0014.TO, SL.TLF.PART.ZS, SL.EMP.TOTL.SP.ZS)
+
+df_clustering <- df %>%
+    filter(indicatorID %in% inds_clustering) %>%
+    pivot_wider(id_cols=c(iso3c,country), names_from = indicatorID, values_from = value) %>%
+    select(!!inds_clustering) %>%
+    mutate(asalariados = SL.EMP.WORK.ZS,
+           patrones = SL.EMP.MPYR.ZS,
+           tcp = SL.EMP.SELF.ZS - SL.FAM.WORK.ZS - SL.EMP.MPYR.ZS,
+           familiares = SL.EMP.SELF.ZS - SL.EMP.MPYR.ZS - tcp,
+           rel_salariales = patrones + asalariados,
+           rel_no_salariales = familiares + tcp) %>%
+    select(iso3c:SL.SRV.EMPL.ZS, asalariados:rel_no_salariales) %>%
+    drop_na()
+```
+
+
+Es interesante ver que existe una alta relación entre la proporción de población en la rama 1 y la extensión de relaciones salariales.
+
+
+**Gráfico 1. Proporción de población agrícola según proporción de asalariados y TCP, Mundo 2005-2015)**
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+df_clustering %>%
+    ggplot(aes(x=SL.AGR.EMPL.ZS, y=asalariados, size=SP.POP.TOTL)) + 
+        geom_point(color='red', show.legend = FALSE) + 
+        #geom_text(aes(label=country))
+        geom_smooth(show.legend = FALSE) +
+        labs(x='% pob. agrícola', y='% asalariados', size='Población') + 
+        theme_minimal() + 
+    
+df_clustering %>%
+    ggplot(aes(x=SL.AGR.EMPL.ZS, y=tcp, size=SP.POP.TOTL)) + 
+        geom_point(color='red', show.legend = FALSE) + 
+        #geom_text(aes(label=country))
+        geom_smooth(show.legend = FALSE) +
+        labs(x='% pob. agrícola', y='% TCP', size='Población') + 
+        theme_minimal()
+```
+
+## Método de clustering 
+
+El objetivo es lograr un agrupamiento de países según las variables mencionadas más arriba. Cada grupo deberá ser lo más homogéneo en su interior (es decir, los países al interior de un grupo o cluster deberán ser lo más parecidos posible) y lo más heterogéneos entre sí. Para ello, se aplicó un método de clustering basado en [k-medias](https://en.wikipedia.org/wiki/K-means_clustering). El número de clusters fue seleccionado por medio del [estadístico gap](https://web.stanford.edu/~hastie/Papers/gap.pdf).
+
+
+### Resultados
+
+Se estima un clustering con las variables de categoría ocupacional agregadas y excluyendo a la variable Población en Industria. A su vez, estandarizamos la escala de las variables y las combinamos mediante un PCA.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+rec_agg <- recipe( ~ ., data = df_clustering %>% select(-c(SP.POP.TOTL, SL.IND.EMPL.ZS, rel_no_salariales, asalariados:familiares))) %>%
+    update_role(iso3c, new_role = 'sample ID') %>%
+    update_role(country, new_role = 'sample ID')
+    
+pca_estimates_agg <- rec_agg %>%
+    step_center(all_numeric()) %>%
+    step_scale(all_numeric()) %>%
+    #step_corr(all_numeric()) %>%
+    step_pca(all_numeric(), threshold = 0.99) %>%
+    prep(training = df_clustering %>% select(-c(SP.POP.TOTL,SL.IND.EMPL.ZS, rel_no_salariales, asalariados:familiares)))
+
+
+pca_data_agg <- bake(pca_estimates_agg, df_clustering)
+```
+
+Estimamos el número de clusters con el gap statistic:
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+gap_stat <- clusGap(pca_data_agg %>% select(-c(iso3c, country)), 
+                    FUN = kmeans,
+                    nstart = 25,
+                    K.max = 30, B = 500)
+
+```
+
+
+**Gráfico 2. Número de clusters según gap statistic**
+
+```{r echo=FALSE, fig.fullwidth=TRUE, message=FALSE, warning=FALSE}
+gap_stat$Tab %>%
+    as_tibble() %>%
+    mutate(nclus=1:30) %>%
+    ggplot(aes(x=nclus, y=gap)) + 
+        geom_line(color='red') +
+        geom_errorbar(aes(ymin=gap-SE.sim, ymax=gap+SE.sim), width=.2,
+                 position=position_dodge(0.05), color='blue') +
+        geom_vline(xintercept=5, linetype='dotted') +
+        theme_minimal() +
+        labs(
+             x='n clusters')
+```
+
+Puede notarse que el número óptimo de cluster parece ser 5. No obstante, probaremos con tres especificaciones distintas: 3, 4 y 5 clusters de países.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+centers <- list()
+
+for (i in c(3,4, 5)){
+    centers[[paste('C',i, sep='')]] <- pca_data_agg %>% 
+    select(-c(iso3c,country)) %>%
+    train_kmean(k=i)
+}
+
+centers <- do.call(cbind, centers) %>% as_tibble()
+
+df_clustering_final <- df_clustering %>%
+    bind_cols(centers)
+```
+
+
+```{r include=FALSE}
+df_clustering_final <- df_clustering_final %>%
+    mutate(C3 = case_when(C3 == 1 ~ '1_Alto',
+                          C3 == 2 ~ '2_Medio',
+                          C3 == 3 ~ '3_Bajo'
+                          ),
+           
+           C4 = case_when(C4 == 4 ~ '1_Alto',
+                          C4 == 3 ~ '2_Alto A, +PA -RS',
+                          C4 == 1 ~ '2_Medio',
+                          C4 == 2 ~ '3_Bajo'
+                          ),
+           
+           C5 = case_when(C5 == 2 ~ '1_Alto',
+                          C5 == 1 ~ '2_Alto A, +PA -RS',
+                          C5 == 3 ~ '5_Bajo',
+                          C5 == 4 ~ '3_Medio',
+                          C5 == 5 ~ '4_Bajo B +IND,SERV y RS'
+                              )
+    )
+```
+
+
+**Gráfico 3. Indicadores según grupo de países (k=3)**
+
+```{r echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
+df_clustering_final %>%
+    group_by(C3) %>%
+    summarise_at(vars(SL.AGR.EMPL.ZS:rel_no_salariales), median) %>%
+    select(C3, SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales) %>%
+    rename(agr = SL.AGR.EMPL.ZS,
+           ind = SL.IND.EMPL.ZS,
+           serv = SL.SRV.EMPL.ZS,
+           salar = rel_salariales,
+           no_salar = rel_no_salariales) %>%
+   # mutate(C3=factor(C3)) %>%
+    pivot_longer(agr:no_salar) %>%
+    ggplot(aes(x=name, y=value, group=C3, color=C3)) +
+        geom_line(show.legend=FALSE) +
+       # geom_polygon() + 
+        coord_polar() +
+        theme_minimal() +
+        facet_wrap(vars(C3), nrow=2, as.table = TRUE)
+
+write_csv(df_clustering, '../data/proc/paises_clustering_c3_c4_c5.csv')
+```
+
+En el esquema de tres grupos puede verse que se identifican tres grupos claros:
+
+- un grupo que conceptualizamos como de alto desarrollo de relaciones salariales, caracterizado por baja población agrícola, alta población en servicios y alta proporción de población inserta en relaciones salariales (n=82)
+- un grupo de desarrollo bajo, caracterizado por una alta pioblación agrícola, baja población en servicios y baja población inserta en relaciones salariales (n=49)
+- un grupo intermedio (n=52)
+
+
+**Gráfico 3. Indicadores según grupo de países (k=4)**
+
+```{r echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
+df_clustering_final %>%
+    group_by(C4) %>%
+    summarise_at(vars(SL.AGR.EMPL.ZS:rel_no_salariales), median) %>%
+    select(C4, SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales) %>%
+    rename(agr = SL.AGR.EMPL.ZS,
+           ind = SL.IND.EMPL.ZS,
+           serv = SL.SRV.EMPL.ZS,
+           salar = rel_salariales,
+           no_salar = rel_no_salariales) %>%
+    pivot_longer(agr:no_salar) %>%
+    ggplot(aes(x=name, y=value, group=C4, color=C4)) +
+        geom_line(show.legend=FALSE) +
+       # geom_polygon() + 
+        coord_polar() +
+        theme_minimal() +
+        facet_wrap(vars(C4), nrow=2, as.table = TRUE)
+
+```
+
+En el esquema de 4 clases, se mantienen los 3 grupos anteriores. Además es posible notar que se forma un grupo similar al cluster "Alto", pero que se caracteriza por un peso mayor de la población agrícola, un peso menor de la población inserta en industria y una proporción menor (pero aún mayoritaria) de poblaciíon en relaciones salariales.
+
+
+
+**Gráfico 3. Indicadores según grupo de países (k=5)**
+
+```{r echo=FALSE, fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
+df_clustering_final %>%
+    group_by(C5) %>%
+    summarise_at(vars(SL.AGR.EMPL.ZS:rel_no_salariales), median) %>%
+    select(C5, SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales) %>%
+    rename(agr = SL.AGR.EMPL.ZS,
+           ind = SL.IND.EMPL.ZS,
+           serv = SL.SRV.EMPL.ZS,
+           salar = rel_salariales,
+           no_salar = rel_no_salariales) %>%
+    pivot_longer(agr:no_salar) %>%
+    ggplot(aes(x=name, y=value, group=C5, color=C5)) +
+        geom_line(show.legend=FALSE) +
+       # geom_polygon() + 
+        coord_polar() +
+        theme_minimal() +
+        facet_wrap(vars(C5), nrow=2, as.table = TRUE)
+```
+
+Algo similar ocurre en el esquema de 5 clases (el óptimo según el método de gap statistic). Se mantienen tres grupos con perfiles bien claros (alto, medio y bajo) y aparecen dos grupos intermedios. 
+
+- el primero similar al del esquema anterior y podría ser considerado como un subgrupo dentro de los países de alto desarrollo capitalista, caractarizado por un peso mayor de la poblacion agrícola y menor de la población en relaciones salariales
+- el segundo, aparece como un subtipo de los países con bajo desarrollo y muestra un peso menor de la población agrícola (que continúa cerca de la mitad en promedio), mayor de los servicios y mayor de la población en relaciones salariales
+
+¿En qué medida ambos subgrupos están caracterizando situaciones transicionales? Por ejemplo, de pasajes de bajo grado a mediano grado y similares?
+
+
+### Validación de los clusters
+#### Manual
+
+Para validar cada uno de los tres agrupamientos se seleccionaron algunos países típicos:
+
+**Tabla 1. Indicadores y pertenencia a diferentes clusters según países seleccionados**
+
+```{r echo=FALSE, fig.height=10, message=FALSE, warning=FALSE, results='asis', layout="l-body-outset"}
+paises_test <- c("Germany", "France", "United Kingdom", "China", "India", "Australia", "Argentina", "Brazil", "Uruguay", "United States", "Mexico", "Italia", "Spain", "Canada")
+
+knitr::kable(
+    df_clustering_final %>%
+    filter(country %in% paises_test) %>%
+    select(country,SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales, C3:C5) %>%
+    rename(pob_agro = SL.AGR.EMPL.ZS,
+           pob_ind = SL.IND.EMPL.ZS,
+           pob_serv = SL.SRV.EMPL.ZS)
+    ,
+    digits=2)
+```
+
+Podemos ver que los países de mayor desarrollo capitalista aparecen consistentemente en las tres clasificaciones en los valores "altos": Argentina, Australia, Alemania, España, Italia, Francia, Reino Unido, Estados Unidos y Canadá.
+
+A su vez, Brasil y México cambian al grupo "Alto A" en el esquema de 4 y 5 grupos. Uruguay pasa al grupo Alto A en el esquema de 5 grupos.
+
+Así también, países como China e India aparecen dentro de los grupos de desarrollo medio. Particularmente, India aparece clasificado como Medio B en el esquema de cinco grupos.
+
+**Tabla 2. Pertenencia a grupos en esquema k=3 según pertenencia a grupos en k=5**
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(df_clustering_final %>%
+    tabyl(C5,C3) %>%
+    adorn_totals('row') %>%
+    adorn_totals('col')
+
+)
+```
+El esquema de 5 grupos (k=5) desagrega especialmente a los grupos "Alto" y "Bajo" del esquema de tres clases.
+
+
+**Tabla 3. Indicadores de países pertenecientes al grupo `Bajo B` en esquema k=5**
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis',layout="l-body-outset"}
+knitr::kable(
+    df_clustering_final %>%
+    select(country,SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales, C3:C5) %>%
+    rename(pob_agro = SL.AGR.EMPL.ZS,
+           pob_ind = SL.IND.EMPL.ZS,
+           pob_serv = SL.SRV.EMPL.ZS) %>%
+    filter(str_detect(df_clustering_final$C5, '4_')),
+    digits=2
+)
+```
+
+Podemos observar que los países que quedan clasificados en el grupo `Bajo B` son la India, países de África (Angola, Camerun, Congo, Costa de Marfil, etc.), Vietnam, Corea del Norte y algunas repúblicas de la ex-URSS. Y el rasgo de estos parece ser que la población agrícola está en general, por debajo del 55% de la población ocupada, mientras que el agregado del cluster "bajo" está en el orden del 70%.
+
+
+**Tabla 3. Indicadores de países pertenecientes al grupo `Alto A` en esquema k=5**
+
+```{r echo=FALSE, message=FALSE, warning=FALSE,  results='asis', layout="l-body-outset"}
+knitr::kable(
+    df_clustering_final %>%
+    select(country,SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales, C3:C5) %>%
+        rename(pob_agro = SL.AGR.EMPL.ZS,
+           pob_ind = SL.IND.EMPL.ZS,
+           pob_serv = SL.SRV.EMPL.ZS) %>%
+        
+    filter(str_detect(df_clustering_final$C5, '2_')),
+    digits=2
+)
+```
+
+A su vez, el grupo de países clasificados como "Alto A", incluye países como Brasil, Chile, Colombia, Cuba, México, Uruguay y Venezuela de América Latina; Bulgaría, República Checa, Grecia, Croacia, Polonia y Portugar de Europa. Estos países comparten los rasgos del tipo de alto desarrollo pero se caraterizan por tener una población agrícola superior y un peso menor de las relaciones salariales.
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+worldmap <- map_data("world")
+
+worldmap$iso3c <- maps::iso.alpha(x=worldmap$region,n=3)
+
+worldmap <- worldmap %>%
+    left_join(df_clustering_final %>% select(country, iso3c, C3:C5))
+```
+
+
+**Mapa 1. Países según esquema de agrupamiento k=3**
+
+```{r echo=FALSE, fig.height=8, fig.width=16, message=FALSE, warning=FALSE, layout="l-body"}
+worldmap %>%
+    drop_na(C3) %>%  
+    ggplot() + 
+    geom_polygon(aes(x=long, y=lat, group=group, fill=as.factor(C3)), color='black') +
+    scale_fill_viridis_d(labels = c('Alto', 'Medio', 'Bajo'), na.translate=FALSE) +
+    labs(fill='Grado de desarrollo (3 grupos)') +
+    theme_minimal()
+
+```
+
+**Mapa 2. Países según esquema de agrupamiento k=4**
+
+```{r echo=FALSE, fig.height=8, fig.width=16, message=FALSE, warning=FALSE, layout="l-body"}
+worldmap %>%
+    drop_na(C4) %>%
+    ggplot() + 
+    geom_polygon(aes(x=long, y=lat, group=group, fill=as.factor(C4)), color='black') +
+    scale_fill_viridis_d(labels = c('Alto','Alto (+ agro)', 'Medio', 'Bajo'), na.translate=FALSE) +
+    labs(fill='Grado de desarrollo (4 grupos)') +
+    theme_minimal()
+```
+
+**Mapa 3. Países según esquema de agrupamiento k=5**
+```{r echo=FALSE, fig.height=8, fig.width=16, message=FALSE, warning=FALSE, layout="l-body"}
+worldmap %>%
+    drop_na(C5) %>%
+    ggplot() + 
+    geom_polygon(aes(x=long, y=lat, group=group, fill=as.factor(C5)), color='black') +
+    scale_fill_viridis_d(labels = c('Alto','Alto (+ agro)', 'Medio', 'Bajo B', 'Bajo'), na.translate=FALSE) +
+    labs(fill='Grado de desarrollo (5 grupos)') +
+    theme_minimal()
+```
+
+
+## Comportamiento de otros indicadores en los diferentes tipos de países
+
+Veamos cómo se comportan algunos otros indicadores agregados para cada grupo de país:
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df_clustering_final <- df_clustering_final %>%
+    left_join(df_) 
+
+#write_csv(df_clustering_final, '../data/proc/paises_clustering_final.csv')
+```
+
+**Tabla 4. Indicadores de validación externa según grupos (k=5)**
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+knitr::kable(
+    df_clustering_final %>%
+    group_by(C5) %>%
+    summarise(#pop = sum(SP.POP.TOTL),
+              n_total = n(),
+              #n_valid_empleo = sum(!is.na(SL.EMP.TOTL.SP.ZS)),
+              empleo_w = weighted.mean(SL.EMP.TOTL.SP.ZS, w=SP.POP.TOTL, na.rm=TRUE),
+              #n_valid_desempleo = sum(!is.na(SL.UEM.TOTL.ZS)),
+              desempleo_w = weighted.mean(SL.UEM.TOTL.ZS, w=SP.POP.TOTL, na.rm=TRUE),
+              empleo_vulnerable_w = weighted.mean(SL.EMP.VULN.ZS, w=SP.POP.TOTL, na.rm=TRUE),
+              #n_valid_empleo_parcial = sum(!is.na(SL.TLF.PART.ZS)),
+              empleo_parcial_w = weighted.mean(SL.TLF.PART.ZS, w=SP.POP.TOTL, na.rm=TRUE)
+    ) %>%
+    pivot_longer(n_total:empleo_parcial_w) %>%
+    pivot_wider(names_from=C5,
+        values_from = value),
+    digits=2)
+```
+
+
+
