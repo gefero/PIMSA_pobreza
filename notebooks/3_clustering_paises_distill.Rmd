@@ -229,7 +229,6 @@ df_clustering_final <- df_clustering_final %>%
 
 
 **Gráfico 3. Indicadores según grupo de países (k=3)**
-
 ```{r echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
 df_clustering_final %>%
     group_by(C3) %>%
@@ -252,6 +251,28 @@ df_clustering_final %>%
 write_csv(df_clustering, '../data/proc/paises_clustering_c3_c4_c5.csv')
 ```
 
+
+**Gráfico 3b. Boxplots indicadores según grupo de países (k=3)**
+``````{r echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
+df_clustering_final %>%
+    #group_by(C5) %>%
+    #summarise_at(vars(SL.AGR.EMPL.ZS:rel_no_salariales), median) %>%
+    select(C3:C5, SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales) %>%
+    rename(agr = SL.AGR.EMPL.ZS,
+           ind = SL.IND.EMPL.ZS,
+           serv = SL.SRV.EMPL.ZS,
+           salar = rel_salariales,
+           no_salar = rel_no_salariales) %>%
+    pivot_longer(agr:no_salar) %>%
+    ggplot() +
+      geom_boxplot(aes(x=C3, y=value, fill=C3), show.legend = FALSE) +
+      #geom_violin(aes(x=C3, y=value, fill=C3), show.legend = FALSE) +    
+      scale_fill_viridis_d() +
+      theme_minimal() +
+      facet_wrap(vars(name), nrow=3, as.table = TRUE)
+```
+
+
 En el esquema de tres grupos puede verse que se identifican tres grupos claros:
 
 - un grupo que conceptualizamos como de alto desarrollo de relaciones salariales, caracterizado por baja población agrícola, alta población en servicios y alta proporción de población inserta en relaciones salariales (n=82)
@@ -259,8 +280,7 @@ En el esquema de tres grupos puede verse que se identifican tres grupos claros:
 - un grupo intermedio (n=52)
 
 
-**Gráfico 3. Indicadores según grupo de países (k=4)**
-
+**Gráfico 4. Indicadores según grupo de países (k=4)**
 ```{r echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
 df_clustering_final %>%
     group_by(C4) %>%
@@ -281,12 +301,31 @@ df_clustering_final %>%
 
 ```
 
+**Gráfico 4b. Boxplot indicadores según grupo de países (k=4)**
+```{r echo=FALSE, fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
+df_clustering_final %>%
+    #group_by(C5) %>%
+    #summarise_at(vars(SL.AGR.EMPL.ZS:rel_no_salariales), median) %>%
+    select(C3:C5, SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales) %>%
+    rename(agr = SL.AGR.EMPL.ZS,
+           ind = SL.IND.EMPL.ZS,
+           serv = SL.SRV.EMPL.ZS,
+           salar = rel_salariales,
+           no_salar = rel_no_salariales) %>%
+    pivot_longer(agr:no_salar) %>%
+    ggplot() +
+      geom_boxplot(aes(x=C4, y=value, fill=C4), show.legend = FALSE) +
+      #geom_violin(aes(x=C4, y=value, fill=C4), show.legend = FALSE) +    
+      scale_fill_viridis_d() +
+      theme_minimal() +
+      facet_wrap(vars(name), nrow=3, as.table = TRUE)
+```
+
 En el esquema de 4 clases, se mantienen los 3 grupos anteriores. Además es posible notar que se forma un grupo similar al cluster "Alto", pero que se caracteriza por un peso mayor de la población agrícola, un peso menor de la población inserta en industria y una proporción menor (pero aún mayoritaria) de poblaciíon en relaciones salariales.
 
 
 
-**Gráfico 3. Indicadores según grupo de países (k=5)**
-
+**Gráfico 5. Indicadores según grupo de países (k=5)**
 ```{r echo=FALSE, fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
 df_clustering_final %>%
     group_by(C5) %>%
@@ -306,12 +345,36 @@ df_clustering_final %>%
         facet_wrap(vars(C5), nrow=2, as.table = TRUE)
 ```
 
+
+**Gráfico 5b. Indicadores según grupo de países (k=5)**
+```{r echo=FALSE, fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
+df_clustering_final %>%
+    #group_by(C5) %>%
+    #summarise_at(vars(SL.AGR.EMPL.ZS:rel_no_salariales), median) %>%
+    select(C3:C5, SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales) %>%
+    rename(agr = SL.AGR.EMPL.ZS,
+           ind = SL.IND.EMPL.ZS,
+           serv = SL.SRV.EMPL.ZS,
+           salar = rel_salariales,
+           no_salar = rel_no_salariales) %>%
+    pivot_longer(agr:no_salar) %>%
+    ggplot() +
+      geom_boxplot(aes(x=C5, y=value, fill=C5), show.legend = FALSE) +
+      #geom_violin(aes(x=C5, y=value, fill=C5), show.legend = FALSE) +    
+      scale_fill_viridis_d() +
+      theme_minimal() +
+      facet_wrap(vars(name), nrow=3, as.table = TRUE)
+```
+
+
 Algo similar ocurre en el esquema de 5 clases (el óptimo según el método de gap statistic). Se mantienen tres grupos con perfiles bien claros (alto, medio y bajo) y aparecen dos grupos intermedios. 
 
 - el primero similar al del esquema anterior y podría ser considerado como un subgrupo dentro de los países de alto desarrollo capitalista, caractarizado por un peso mayor de la poblacion agrícola y menor de la población en relaciones salariales
 - el segundo, aparece como un subtipo de los países con bajo desarrollo y muestra un peso menor de la población agrícola (que continúa cerca de la mitad en promedio), mayor de los servicios y mayor de la población en relaciones salariales
 
 ¿En qué medida ambos subgrupos están caracterizando situaciones transicionales? Por ejemplo, de pasajes de bajo grado a mediano grado y similares?
+
+
 
 
 ### Validación de los clusters
@@ -448,7 +511,6 @@ df_clustering_final <- df_clustering_final %>%
 ```
 
 **Tabla 4. Indicadores de validación externa según grupos (k=5)**
-
 ```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 
 knitr::kable(
