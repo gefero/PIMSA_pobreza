@@ -18,6 +18,7 @@ library(cluster)
 library(tidymodels)
 library(FactoMineR)
 library(janitor)
+library(povcalnetR)
 
 train_kmean <- function(df, k){
     set.seed(100)
@@ -25,6 +26,12 @@ train_kmean <- function(df, k){
              iter.max = 300, nstart = 25)$cluster
     return(cl)
 }
+
+info_countries <- povcalnet_info() %>%
+  select(country_code, country_name, income_region) %>%
+  rename(iso3c = country_code,
+         country = country_name) %>%
+  distinct(iso3c, .keep_all = TRUE)
 
 ```
 
@@ -95,8 +102,8 @@ inds_clustering <- c("iso3c","country","SP.POP.TOTL", "SL.AGR.EMPL.ZS", "SL.IND.
 #inds_other <- c("SP.POP.0014.TO", "21081","SL.TLF.PART.ZS","SL.EMP.TOTL.SP.ZS")
 
 df_ <- df %>%
-    pivot_wider(id_cols=c(iso3c,country), names_from = indicatorID, values_from = value) %>%
-    select(iso3c,`21081`,SL.UEM.TOTL.ZS, SL.UEM.ADVN.ZS, SL.EMP.VULN.ZS,SP.POP.0014.TO, SL.TLF.PART.ZS, SL.EMP.TOTL.SP.ZS)
+    pivot_wider(id_cols=c(iso3c), names_from = indicatorID, values_from = value) %>%
+    select(iso3c, SL.UEM.TOTL.ZS, SL.UEM.ADVN.ZS, SL.EMP.VULN.ZS,SP.POP.0014.TO, SL.TLF.PART.ZS, SL.EMP.TOTL.SP.ZS)
 
 df_clustering <- df %>%
     filter(indicatorID %in% inds_clustering) %>%
@@ -110,6 +117,9 @@ df_clustering <- df %>%
            rel_no_salariales = familiares + tcp) %>%
     select(iso3c:SL.SRV.EMPL.ZS, asalariados:rel_no_salariales) %>%
     drop_na()
+
+#df_clustering %>% group_by(iso3c) %>% summarise(n=n()) %>% filter(n>1)
+
 ```
 
 
@@ -393,8 +403,7 @@ knitr::kable(
     select(country,SL.AGR.EMPL.ZS:SL.SRV.EMPL.ZS, rel_salariales:rel_no_salariales, C3:C5) %>%
     rename(pob_agro = SL.AGR.EMPL.ZS,
            pob_ind = SL.IND.EMPL.ZS,
-           pob_serv = SL.SRV.EMPL.ZS)
-    ,
+           pob_serv = SL.SRV.EMPL.ZS),
     digits=2)
 ```
 
@@ -505,10 +514,25 @@ Veamos cómo se comportan algunos otros indicadores agregados para cada grupo de
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 df_clustering_final <- df_clustering_final %>%
-    left_join(df_) 
+    left_join(df_)
 
-#write_csv(df_clustering_final, '../data/proc/paises_clustering_final.csv')
+df_clustering_final <- df_clustering_final %>%
+  left_join(info_countries %>% select(-country), by='iso3c') %>%
+  replace_na(list(income_region='NoData')) %>%
+  select(iso3c, country, income_region, C3:C5, everything())
+
+df_clustering_final <- df_clustering_final %>%
+  mutate(income_region = case_when(
+                income_region == 'HIC' ~ '1_High income',
+                income_region == 'UMC' ~ '2_Upper middle income',
+                income_region == 'LMC' ~ '3_Lower middle income',
+                income_region == 'LIC' ~ '4_Low income',
+                income_region == 'NoData' ~ '9_No data'
+  ))
+
+write_csv(df_clustering_final, '../data/proc/paises_clustering_final.csv')
 ```
+
 
 **Tabla 4. Indicadores de validación externa según grupos (k=5)**
 ```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
@@ -533,4 +557,35 @@ knitr::kable(
 ```
 
 
+**Tabla 5. Comparación de grupos (k=5) con clasificación de BM **
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+knitr::kable(
+df_clustering_final %>%
+  tabyl(income_region, C5) %>%
+  adorn_totals('row') %>%
+  adorn_totals('col')
+)
+```
 
+
+**Tabla 6. Comparación de grupos (k=4) con clasificación de BM **
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+knitr::kable(
+df_clustering_final %>%
+  tabyl(income_region, C4) %>%
+  adorn_totals('row') %>%
+  adorn_totals('col')
+)
+```
+
+
+
+**Tabla 5. Comparación de grupos (k=3) con clasificación de BM **
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+knitr::kable(
+df_clustering_final %>%
+  tabyl(income_region, C3) %>%
+  adorn_totals('row') %>%
+  adorn_totals('col')
+)
+```
