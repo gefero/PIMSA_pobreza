@@ -8,7 +8,8 @@ description: |
 #    affiliation: Spacely Sprockets
 #    affiliation_url: https://example.com/spacelysprokets
 date: "`r Sys.Date()`"
-output: distill::distill_article
+#output: distill::distill_article
+output: word_document
 ---
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
@@ -83,6 +84,7 @@ Particularmente se trabajó con los siguientes indicadores (los cuales son produ
 - SL.SRV.EMPL.ZS	Employment in services (% of total employment) (modeled ILO estimate)
 
 *Categoría ocupacional - como aproximación indirecta a la expansión de relaciones salariales-*
+
 - SL.EMP.MPYR.ZS	Employers, total (% of total employment) (modeled ILO estimate)
 - SL.EMP.SELF.ZS	Self-employed, total (% of total employment) (modeled ILO estimate)
 - SL.EMP.WORK.ZS	Wage and salaried workers, total (% of total employment) (modeled ILO estimate)
@@ -143,6 +145,9 @@ df_clustering %>%
         geom_smooth(show.legend = FALSE) +
         labs(x='% pob. agrícola', y='% TCP', size='Población') + 
         theme_minimal()
+
+
+ggsave('./imgs/3_plot01.png')
 ```
 
 ## Método de clustering 
@@ -195,6 +200,8 @@ gap_stat$Tab %>%
         theme_minimal() +
         labs(
              x='n clusters')
+
+ggsave('./imgs/3_plot02.png')
 ```
 
 Puede notarse que el número óptimo de cluster parece ser 5. No obstante, probaremos con tres especificaciones distintas: 3, 4 y 5 clusters de países.
@@ -540,15 +547,16 @@ write_csv(df_clustering_final, '../data/proc/paises_clustering_final.csv')
 knitr::kable(
     df_clustering_final %>%
     group_by(C5) %>%
-    summarise(#pop = sum(SP.POP.TOTL),
+    summarise(
+              pop = sum(SP.POP.TOTL),
               n_total = n(),
               #n_valid_empleo = sum(!is.na(SL.EMP.TOTL.SP.ZS)),
               empleo_w = weighted.mean(SL.EMP.TOTL.SP.ZS, w=SP.POP.TOTL, na.rm=TRUE),
               #n_valid_desempleo = sum(!is.na(SL.UEM.TOTL.ZS)),
               desempleo_w = weighted.mean(SL.UEM.TOTL.ZS, w=SP.POP.TOTL, na.rm=TRUE),
-              empleo_vulnerable_w = weighted.mean(SL.EMP.VULN.ZS, w=SP.POP.TOTL, na.rm=TRUE),
+              #empleo_vulnerable_w = weighted.mean(SL.EMP.VULN.ZS, w=SP.POP.TOTL, na.rm=TRUE),
               #n_valid_empleo_parcial = sum(!is.na(SL.TLF.PART.ZS)),
-              empleo_parcial_w = weighted.mean(SL.TLF.PART.ZS, w=SP.POP.TOTL, na.rm=TRUE)
+              #empleo_parcial_w = weighted.mean(SL.TLF.PART.ZS, w=SP.POP.TOTL, na.rm=TRUE)
     ) %>%
     pivot_longer(n_total:empleo_parcial_w) %>%
     pivot_wider(names_from=C5,
